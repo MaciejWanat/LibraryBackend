@@ -17,5 +17,7 @@ namespace libraryBackend.Models
 
         [Column(TypeName = "Money")]
         public decimal Price { get; set; }
+
+        public int Sold { get; set; }
     }
 }

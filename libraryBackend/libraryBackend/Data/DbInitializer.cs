@@ -13,23 +13,23 @@ namespace libraryBackend.Data
             context.Database.EnsureCreated();
 
             // Look for any students.
-            if (context.Users.Any())
+            if (context.Books.Any())
             {
                 return;   // DB has been seeded
             }
 
-            var users = new User[]
+            var users = new LibraryUser[]
             {
-                new User{FirstName="Carson",LastName="Alexander"},
-                new User{FirstName="Meredith",LastName="Alonso"},
-                new User{FirstName="Arturo",LastName="Anand"},
-                new User{FirstName="Gytis",LastName="Barzdukas"},
-                new User{FirstName="Yan",LastName="Li"},
-                new User{FirstName="Peggy",LastName="Justice"},
-                new User{FirstName="Laura",LastName="Norman"},
-                new User{FirstName="Nino",LastName="Olivetto"}
+                new LibraryUser{FirstName="Carson",LastName="Alexander", Email ="carson@gmail.com"},
+                new LibraryUser{FirstName="Meredith",LastName="Alonso",Email ="alonso@gmail.com"},
+                new LibraryUser{FirstName="Arturo",LastName="Anand",Email ="anand@gmail.com"},
+                new LibraryUser{FirstName="Gytis",LastName="Barzdukas",Email ="barzdukas@bbb.gmail.com"},
+                new LibraryUser{FirstName="Yan",LastName="Li",Email ="li@gmail.com"},
+                new LibraryUser{FirstName="Peggy",LastName="Justice",Email ="justice@gmail.com"},
+                new LibraryUser{FirstName="Laura",LastName="Norman",Email ="norman@gmail.com"},
+                new LibraryUser{FirstName="Nino",LastName="Olivetto",Email ="olivetto@gmail.com"}
             };
-            foreach (User u in users)
+            foreach (LibraryUser u in users)
             {
                 context.Users.Add(u);
             }

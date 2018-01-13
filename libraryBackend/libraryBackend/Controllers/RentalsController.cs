@@ -7,11 +7,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using libraryBackend.Data;
 using libraryBackend.Models;
+using Microsoft.AspNetCore.Authorization;
 
 namespace libraryBackend.Controllers
 {
     [Produces("application/json")]
     [Route("api/rentals")]
+    [Authorize]
     public class RentalsController : Controller
     {
         private readonly LibraryContext _context;
@@ -23,6 +25,7 @@ namespace libraryBackend.Controllers
 
         // GET: api/Rentals
         [HttpGet]
+        [Authorize(Roles = "Admin")]
         public IEnumerable<Rental> GetRentals()
         {
             return _context.Rentals;

@@ -1,19 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace libraryBackend.Models
 {
-    public class Rental
+    public class LoginViewModel
     {
         [Required]
-        public Guid RentalId { get; set; }
+        [EmailAddress]
+        public string Email { get; set; }
         [Required]
-        public Book Book { get; set; }
+        public string Password { get; set; }
         [Required]
-        public LibraryUser User { get; set; }        
+        public bool RememberMe { get; set; }
     }
 }

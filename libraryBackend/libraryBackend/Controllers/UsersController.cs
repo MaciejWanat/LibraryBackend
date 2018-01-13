@@ -7,120 +7,193 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using libraryBackend.Data;
 using libraryBackend.Models;
+using System.Text;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Configuration;
 
 namespace libraryBackend.Controllers
 {
+    [Authorize]
     [Produces("application/json")]
     [Route("api/users")]
     public class UsersController : Controller
     {
-        private readonly LibraryContext _context;
+        private readonly UserManager<LibraryUser> _userManager;
+        private readonly SignInManager<LibraryUser> _signInManager;
+        private readonly IConfiguration _configuration;
 
-        public UsersController(LibraryContext context)
+        public UsersController(UserManager<LibraryUser> userManager, SignInManager<LibraryUser> signInManager, IConfiguration Configuration)
         {
-            _context = context;
+            _userManager = userManager;
+            _signInManager = signInManager;
+            _configuration = Configuration;
         }
 
         // GET: api/Users
         [HttpGet]
-        public IEnumerable<User> GetUsers()
+        [Authorize(Roles = "Admin")]
+        public IEnumerable<LibraryUser> GetUsers()
         {
-            return _context.Users;
+            return _userManager.Users.ToList();
         }
 
-        // GET: api/Users/5
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetUser([FromRoute] Guid id)
+        // PUT: api/Users/aaa@bbb.com
+        [HttpPut("{email}")]
+        public async Task<IActionResult> PutUser([FromRoute] string email, [FromBody] RegistrationViewModel model)
         {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var user = await _context.Users.SingleOrDefaultAsync(m => m.UserId == id);
+            var user = await _userManager.FindByEmailAsync(email);
 
             if (user == null)
             {
                 return NotFound();
             }
+            
+            user.SetChanges(model, _userManager);
 
-            return Ok(user);
-        }
+            await _userManager.UpdateSecurityStampAsync(user);
+            var result = await _userManager.UpdateAsync(user);
 
-        // PUT: api/Users/5
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutUser([FromRoute] Guid id, [FromBody] User user)
-        {
-            if (!ModelState.IsValid)
+            if (result.Succeeded)
             {
-                return BadRequest(ModelState);
+                return Ok(result);
             }
 
-            if (id != user.UserId)
-            {
-                return BadRequest();
-            }
-
-            _context.Entry(user).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!UserExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
-            return NoContent();
+            return BadRequest(result);
         }
 
         // POST: api/Users
         [HttpPost]
-        public async Task<IActionResult> PostUser([FromBody] User user)
+        [AllowAnonymous]
+        public async Task<IActionResult> PostUser([FromBody] RegistrationViewModel model)
         {
-            if (!ModelState.IsValid)
+            if (ModelState.IsValid)
             {
-                return BadRequest(ModelState);
-            }
+                var user = new LibraryUser
+                {
+                    UserName = model.Email,
+                    Email = model.Email,
+                    FirstName = model.FirstName,
+                    LastName = model.LastName
+                };
 
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
+                var result = await _userManager.CreateAsync(user, model.Password);
 
-            return CreatedAtAction("GetUser", new { id = user.UserId }, user);
+                if (result.Succeeded)
+                {
+                    await _userManager.AddToRoleAsync(await _userManager.FindByEmailAsync(user.Email), "User");
+                    await _signInManager.SignInAsync(user, isPersistent: false);
+                    return await GenerateJwtToken(model.Email, user);
+                }
+
+                return BadRequest(result);
+            }            
+
+            return BadRequest();
         }
 
-        // DELETE: api/Users/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteUser([FromRoute] Guid id)
+        // DELETE: api/Users/aaa@bbb.com
+        [HttpDelete("{email}")]
+        public async Task<IActionResult> DeleteUser([FromRoute] string email)
         {
-            if (!ModelState.IsValid)
+            if (ModelState.IsValid)
             {
-                return BadRequest(ModelState);
+                var user = await _userManager.FindByEmailAsync(email);
+                if (user == null)
+                {
+                    return NotFound();
+                }
+
+                await _userManager.DeleteAsync(user);
+
+                return Ok(user);
             }
 
-            var user = await _context.Users.SingleOrDefaultAsync(m => m.UserId == id);
-            if (user == null)
-            {
-                return NotFound();
-            }
-
-            _context.Users.Remove(user);
-            await _context.SaveChangesAsync();
-
-            return Ok(user);
+            return BadRequest();
         }
 
-        private bool UserExists(Guid id)
+        // GET: api/Users/aaa@bbb.pl
+        [HttpGet("{email}")]
+        public async Task<IActionResult> GetUserByEmail([FromRoute] string email)
         {
-            return _context.Users.Any(e => e.UserId == id);
+            if (ModelState.IsValid)
+            {              
+                var user = await _userManager.FindByEmailAsync(email);
+
+                if (user == null)
+                {
+                    return NotFound();
+                }
+
+                return Ok(user);
+            }
+            return BadRequest();
+        }
+
+        // POST: api/Users/login
+        [HttpPost("login")]
+        [AllowAnonymous]
+        public async Task<IActionResult> LoginUser([FromBody] LoginViewModel model)
+        {
+            if (ModelState.IsValid)
+            {
+                var result = await _signInManager
+                    .PasswordSignInAsync(
+                        model.Email,
+                        model.Password,
+                        model.RememberMe,
+                        lockoutOnFailure: false);
+
+                if (result.Succeeded)
+                {
+                    var appUser = await _userManager.FindByEmailAsync(model.Email);
+                    return await GenerateJwtToken(model.Email, appUser);
+                }
+            }            
+
+            return BadRequest();           
+        }
+        
+        // POST: api/users/logout  
+        [HttpPost("logout")]
+        public async Task<IActionResult> LogOut()
+        {
+            await _signInManager.SignOutAsync();
+            return Ok();
+        }
+
+        private async Task<IActionResult> GenerateJwtToken(string email, LibraryUser user)
+        {
+            var claims = new List<Claim>
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, email),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            };
+
+            var userRoles = await _userManager.GetRolesAsync(user);
+
+            foreach (var userRole in userRoles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, userRole));
+            }
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JwtKey"]));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var expires = DateTime.Now.AddDays(Convert.ToDouble(_configuration["JwtExpireDays"]));
+
+            var token = new JwtSecurityToken(
+                _configuration["JwtIssuer"],
+                _configuration["JwtIssuer"],
+                claims,
+                expires: expires,
+                signingCredentials: creds
+            );
+
+            return Ok(new { token = new JwtSecurityTokenHandler().WriteToken(token) });
         }
     }
 }

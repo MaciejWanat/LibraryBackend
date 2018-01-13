@@ -4,24 +4,27 @@ using System.Linq;
 using System.Threading.Tasks;
 using libraryBackend.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 
 namespace libraryBackend.Data
 {
-    public class LibraryContext : DbContext
+    public class LibraryContext : IdentityDbContext<LibraryUser>
     {
         public LibraryContext(DbContextOptions<LibraryContext> options) : base(options)
         {
         }
 
-        public DbSet<User> Users { get; set; }
+        //public DbSet<LibraryUser> LibraryUsers { get; set; }
         public DbSet<Book> Books { get; set; }
         public DbSet<Rental> Rentals { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
-        { 
-            modelBuilder.Entity<User>().ToTable("User");
-            modelBuilder.Entity<Book>().ToTable("Book");
-            modelBuilder.Entity<Rental>().ToTable("Rental");
+        {
+            base.OnModelCreating(modelBuilder);
+
+            //modelBuilder.Entity<LibraryUser>().ToTable("Users");
+            modelBuilder.Entity<Book>().ToTable("Books");
+            modelBuilder.Entity<Rental>().ToTable("Rentals");
         }
     }
 }

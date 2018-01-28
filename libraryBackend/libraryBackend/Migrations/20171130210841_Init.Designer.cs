@@ -11,9 +11,10 @@ using System;
 namespace libraryBackend.Migrations
 {
     [DbContext(typeof(LibraryContext))]
-    partial class LibraryContextModelSnapshot : ModelSnapshot
+    [Migration("20171130210841_Init")]
+    partial class Init
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -29,8 +30,6 @@ namespace libraryBackend.Migrations
                         .IsRequired();
 
                     b.Property<string>("Description");
-
-                    b.Property<string>("EbookPath");
 
                     b.Property<string>("Genre")
                         .IsRequired();
@@ -115,10 +114,14 @@ namespace libraryBackend.Migrations
 
                     b.Property<Guid>("BookId");
 
-                    b.Property<string>("UserEmail")
+                    b.Property<string>("UserId")
                         .IsRequired();
 
                     b.HasKey("RentalId");
+
+                    b.HasIndex("BookId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Rentals");
                 });
@@ -229,6 +232,19 @@ namespace libraryBackend.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens");
+                });
+
+            modelBuilder.Entity("libraryBackend.Models.Rental", b =>
+                {
+                    b.HasOne("libraryBackend.Models.Book", "Book")
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("libraryBackend.Models.LibraryUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>

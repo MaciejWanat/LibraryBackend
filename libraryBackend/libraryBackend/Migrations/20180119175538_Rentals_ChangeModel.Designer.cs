@@ -11,9 +11,10 @@ using System;
 namespace libraryBackend.Migrations
 {
     [DbContext(typeof(LibraryContext))]
-    partial class LibraryContextModelSnapshot : ModelSnapshot
+    [Migration("20180119175538_Rentals_ChangeModel")]
+    partial class Rentals_ChangeModel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -29,8 +30,6 @@ namespace libraryBackend.Migrations
                         .IsRequired();
 
                     b.Property<string>("Description");
-
-                    b.Property<string>("EbookPath");
 
                     b.Property<string>("Genre")
                         .IsRequired();

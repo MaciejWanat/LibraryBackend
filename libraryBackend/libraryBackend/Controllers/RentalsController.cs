@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using libraryBackend.Data;
 using libraryBackend.Models;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
 
 namespace libraryBackend.Controllers
 {
@@ -17,18 +19,20 @@ namespace libraryBackend.Controllers
     public class RentalsController : Controller
     {
         private readonly LibraryContext _context;
+        private readonly UserManager<LibraryUser> _userManager;
 
-        public RentalsController(LibraryContext context)
+        public RentalsController(LibraryContext context, UserManager<LibraryUser> userManager)
         {
             _context = context;
+            _userManager = userManager;
         }
 
         // GET: api/Rentals
         [HttpGet]
         [Authorize(Roles = "Admin")]
-        public IEnumerable<Rental> GetRentals()
+        public async Task<IEnumerable<Rental>> GetRentals()
         {
-            return _context.Rentals;
+            return await _context.Rentals.ToListAsync();
         }
 
         // GET: api/Rentals/5
@@ -59,6 +63,12 @@ namespace libraryBackend.Controllers
                 return BadRequest(ModelState);
             }
 
+            var error = await ValidateRental(rental);
+            if (error != "")
+            {
+                return BadRequest(ReturnError(error));
+            }
+
             if (id != rental.RentalId)
             {
                 return BadRequest();
@@ -72,7 +82,7 @@ namespace libraryBackend.Controllers
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (!RentalExists(id))
+                if (!RentalExistsId(id))
                 {
                     return NotFound();
                 }
@@ -92,6 +102,12 @@ namespace libraryBackend.Controllers
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
+            }
+
+            var error = await ValidateRental(rental);
+            if(error != "")
+            {
+                return BadRequest(ReturnError(error));
             }
 
             _context.Rentals.Add(rental);
@@ -121,9 +137,88 @@ namespace libraryBackend.Controllers
             return Ok(rental);
         }
 
-        private bool RentalExists(Guid id)
+        // GET: api/Rentals/aaa@o2.pl
+        [HttpGet("{email}")]
+        public async Task<IActionResult> GetRentalsForUser([FromRoute] string email)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var rentals = await _context.Rentals.Where(m => m.UserEmail == email).ToListAsync();
+            
+            if (rentals.Count() == 0)
+            {
+                return NotFound();
+            }
+
+            return Ok(rentals);
+        }
+
+        private async Task<string> ValidateRental(Rental rental)
+        {
+            if (RentalExists(rental))
+            {
+                return "Book already owned: " + await GetBookName(rental.BookId);
+            }
+
+            var currentUserEmail = User.Claims.Where(e => e.Type == "sub").SingleOrDefault().Value;
+            var currentUserRoles = await _userManager.GetRolesAsync(await _userManager.FindByEmailAsync(currentUserEmail));
+
+            if (!currentUserRoles.Contains("Admin"))
+            {
+                if (currentUserEmail != rental.UserEmail)
+                {
+                    return "This user cannot add book rental for another user";
+                }
+            }
+
+            if (!BookExists(rental.BookId))
+            {
+                return "Book with this id doesn't exist";
+            }
+
+            if (!UserExists(rental.UserEmail))
+            {
+                return "User with this email doesn't exist";
+            }
+
+            return "";
+        }
+
+        private bool RentalExistsId(Guid id)
         {
             return _context.Rentals.Any(e => e.RentalId == id);
+        }
+
+        private bool BookExists(Guid bookId)
+        {
+            return _context.Books.Any(e => e.BookId == bookId);
+        }
+
+        private bool UserExists(string email)
+        {
+            return _context.Users.Any(e => e.Email == email);
+        }
+
+        private bool RentalExists(Rental rental)
+        {
+            return _context.Rentals.Any(e => e.UserEmail == rental.UserEmail && e.BookId == rental.BookId);
+        }
+
+        private async Task<string> GetBookName(Guid bookId)
+        {
+            var book = await _context.Books.SingleOrDefaultAsync(m => m.BookId == bookId);
+            return book.Title;
+        }
+
+        private Dictionary<string, string> ReturnError(string errorMessage)
+        {
+            return new Dictionary<string, string>
+            {
+                { "error", errorMessage }
+            };
         }
     }
 }

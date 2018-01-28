@@ -32,9 +32,9 @@ namespace libraryBackend.Controllers
         // GET: api/Books
         [HttpGet]
         [AllowAnonymous]
-        public IEnumerable<Book> GetBooks()
+        public async Task<IEnumerable<Book>> GetBooks()
         {
-            return _context.Books;
+            return await _context.Books.ToListAsync();
         }
 
         // GET: api/Books/Bestsellers 
@@ -141,9 +141,24 @@ namespace libraryBackend.Controllers
             if (ModelState.IsValid)
             {
                 bool isImageGiven = model.Image != null;
+                bool isEbookGiven = model.Ebook != null;
 
                 string returnPath = Path.Combine("images", "booksImages", "stock.jpg");
                 string path = Path.Combine(_env.WebRootPath, returnPath);
+
+                string returnPathEbook = Path.Combine("ebooks", "default.mobi");
+                string pathEbook = Path.Combine(_env.WebRootPath, returnPathEbook);
+
+                if(isEbookGiven)
+                {
+                    returnPathEbook = Path.Combine("ebooks", model.Ebook.FileName);
+                    pathEbook = Path.Combine(_env.WebRootPath, returnPathEbook);
+
+                    if (System.IO.File.Exists(pathEbook))
+                    {
+                        return BadRequest(ReturnError("Ebook: File with that name already exists."));
+                    }
+                }
 
                 if (isImageGiven)
                 {
@@ -152,13 +167,14 @@ namespace libraryBackend.Controllers
 
                     if (System.IO.File.Exists(path))
                     {
-                        return BadRequest("File with that name already exists.");
+                        return BadRequest(ReturnError("Image: File with that name already exists."));
                     }
                 }
 
                 Book book = model.BookObject();
 
                 book.ImagePath = "/" + returnPath.ToString().Replace(@"\", "/");
+                book.EbookPath = "/" + returnPathEbook.ToString().Replace(@"\", "/");
                 _context.Books.Add(book);
                 await _context.SaveChangesAsync();
 
@@ -167,6 +183,14 @@ namespace libraryBackend.Controllers
                     using (var fs = new FileStream(path, FileMode.Create))
                     {
                         await model.Image.CopyToAsync(fs);
+                    }
+                }
+
+                if (isEbookGiven)
+                {
+                    using (var fs = new FileStream(pathEbook, FileMode.Create))
+                    {
+                        await model.Ebook.CopyToAsync(fs);
                     }
                 }
 
@@ -191,10 +215,18 @@ namespace libraryBackend.Controllers
                 
                 _context.Books.Remove(book);
                 await _context.SaveChangesAsync();
+                await DeleteRentalsForBook(book.BookId);
 
                 var removePath = _env.WebRootPath.ToString() + book.ImagePath.ToString().Replace("/", @"\");
 
                 if(System.IO.File.Exists(removePath) && !removePath.ToString().Contains("stock.jpg"))
+                {
+                    System.IO.File.Delete(removePath);
+                }
+
+                removePath = _env.WebRootPath.ToString() + book.EbookPath.ToString().Replace("/", @"\");
+
+                if (System.IO.File.Exists(removePath) && !removePath.ToString().Contains("default.mobi"))
                 {
                     System.IO.File.Delete(removePath);
                 }
@@ -244,9 +276,9 @@ namespace libraryBackend.Controllers
         }
 
         [HttpPost]
-        [Route("upload")]
+        [Route("upload/image")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Upload(IFormFile image)
+        public async Task<IActionResult> UploadImage(IFormFile image)
         {
             if (image.Length > 0)
             {
@@ -261,6 +293,226 @@ namespace libraryBackend.Controllers
                 return Ok(returnPath);
             }
             return BadRequest(image);
+        }
+
+        [HttpGet("page/{pageSize}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetPages([FromRoute] int pageSize)
+        {
+            string genre = HttpContext.Request.Query["genre"].ToString();
+
+            if (String.IsNullOrEmpty(genre))
+                return Ok(await GetPagesAmount(pageSize));
+
+            return Ok(await GetPagesAmount(pageSize, genre));            
+        }
+        
+        [HttpGet("page/{pageSize}/{pageNum}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetPage([FromRoute] int pageSize, [FromRoute] int pageNum)
+        {
+            string genre = HttpContext.Request.Query["genre"].ToString();
+            bool emptyGenre = String.IsNullOrEmpty(genre);
+            int pagesAmount;
+
+            if (emptyGenre)
+                pagesAmount = await GetPagesAmount(pageSize);            
+            else
+                pagesAmount = await GetPagesAmount(pageSize, genre);
+
+            if (1 <= pageNum && pageNum <= pagesAmount)
+            {
+                var ToSkip = (pageNum - 1) * pageSize;
+
+                if (emptyGenre)
+                    return Ok(await _context.Books.Skip(ToSkip).Take(pageSize).ToListAsync());
+                else
+                    return Ok(await _context.Books.Where(e => e.Genre == genre).Skip(ToSkip).Take(pageSize).ToListAsync());                
+            }
+            else
+            {
+                return BadRequest();
+            }
+        }
+
+        // DELETE: api/Books/genre/{genre}
+        [HttpDelete("genre/{genre}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteGenre([FromRoute] string genre)
+        {
+            var books = await _context.Books.Where(e => e.Genre == genre).ToListAsync();
+
+            if (!books.Any())
+            {
+                return NotFound();
+            }
+
+            _context.Books.RemoveRange(books);
+            await _context.SaveChangesAsync();
+
+            foreach (var book in books)
+            {
+                var removePath = _env.WebRootPath.ToString() + book.ImagePath.ToString().Replace("/", @"\");
+                await DeleteRentalsForBook(book.BookId);
+
+                if (System.IO.File.Exists(removePath) && !removePath.ToString().Contains("stock.jpg"))
+                {
+                    System.IO.File.Delete(removePath);
+                }
+                
+                removePath = _env.WebRootPath.ToString() + book.EbookPath.ToString().Replace("/", @"\");
+
+                if (System.IO.File.Exists(removePath) && !removePath.ToString().Contains("default.mobi"))
+                {
+                    System.IO.File.Delete(removePath);
+                }
+            }
+
+            return Ok(books);           
+        }
+
+        [HttpPost]
+        [Route("upload/ebook")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UploadEbook(Guid bookId, IFormFile ebook)
+        {
+            if (ebook.Length > 0)
+            {
+                string returnPath = Path.Combine("ebooks", ebook.FileName);
+                string path = Path.Combine(_env.WebRootPath, returnPath);
+
+                if (System.IO.File.Exists(path))
+                {
+                    return BadRequest(ReturnError("File with that name already exists."));
+                }
+
+                if (!BookExists(bookId))
+                {
+                    return BadRequest(ReturnError("Book with this id doesn't exist."));
+                }
+
+                var book = await _context.Books.SingleOrDefaultAsync(m => m.BookId == bookId);
+
+                if (book.EbookPath != @"/ebooks/default.mobi")
+                {
+                    return BadRequest(ReturnError("This book already has non-default ebook assigned."));
+                }
+
+                book.EbookPath = "/" + returnPath.ToString().Replace(@"\", @"/");
+
+                _context.Entry(book).State = EntityState.Modified;
+
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    throw;
+                }
+
+                using (var fs = new FileStream(path, FileMode.Create))
+                {
+                    await ebook.CopyToAsync(fs);
+                }
+
+                return Ok(book);
+            }
+
+            return BadRequest(ebook);
+        }
+
+        [HttpDelete]
+        [Route("upload/ebook")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteEbook(Guid bookId)
+        {
+            if (!BookExists(bookId))
+            {
+                return BadRequest(ReturnError("Book with this id doesn't exist."));
+            }
+
+            var book = await _context.Books.SingleOrDefaultAsync(m => m.BookId == bookId);
+
+            if (book.EbookPath == @"/ebooks/default.mobi")
+            {
+                return BadRequest(ReturnError("This book already has default ebook assigned."));
+            }
+
+            var path = _env.WebRootPath.ToString() + book.EbookPath.ToString().Replace("/", @"\");
+
+            if (!System.IO.File.Exists(path))
+            {
+                return BadRequest(ReturnError("File with that name doesn't exist."));
+            }
+            
+            book.EbookPath = @"/ebooks/default.mobi";
+
+            _context.Entry(book).State = EntityState.Modified;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                throw;
+            }
+
+            System.IO.File.Delete(path);
+
+            return Ok(book);
+        }
+
+        [HttpGet("ebook/{bookId}")]
+        public async Task<IActionResult> GetEbook([FromRoute] Guid bookId)
+        {
+            if (!BookExists(bookId))
+            {
+                return BadRequest(ReturnError("Book with this id doesn't exist."));
+            }
+
+            var book = await _context.Books.SingleOrDefaultAsync(m => m.BookId == bookId);
+            var path = _env.WebRootPath.ToString() + book.EbookPath.ToString().Replace("/", @"\");
+
+            if (!System.IO.File.Exists(path))
+            {
+                return BadRequest(ReturnError("File with that name doesn't exist."));
+            }
+
+            var stream = new FileStream(path, FileMode.Open);
+
+            return File(stream, "application/octet-stream");
+        }
+
+        private async Task<int> GetPagesAmount(int pageSize, string genre = "default")
+        {
+            int BooksAmount; 
+
+            if (genre == "default")            
+                BooksAmount = await _context.Books.CountAsync();
+            else
+                BooksAmount = await _context.Books.Where(e => e.Genre == genre).CountAsync();
+
+            return (int)Math.Ceiling(BooksAmount / (double)pageSize);
+        }
+
+        private async Task DeleteRentalsForBook(Guid bookId)
+        {
+            var rentals = await _context.Rentals.Where(m => m.BookId == bookId).ToListAsync();
+            if (rentals.Any())
+            {
+                _context.Rentals.RemoveRange(rentals);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        private Dictionary<string,string> ReturnError(string errorMessage)
+        {
+            return new Dictionary<string, string>
+            {
+                { "error", errorMessage }
+            };
         }
 
         private bool BookExists(Guid id)

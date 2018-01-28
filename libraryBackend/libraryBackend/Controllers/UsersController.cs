@@ -37,9 +37,9 @@ namespace libraryBackend.Controllers
         // GET: api/Users
         [HttpGet]
         [Authorize(Roles = "Admin")]
-        public IEnumerable<LibraryUser> GetUsers()
+        public async Task<IEnumerable<LibraryUser>> GetUsers()
         {
-            return _userManager.Users.ToList();
+            return await _userManager.Users.ToListAsync();
         }
 
         // PUT: api/Users/aaa@bbb.com

@@ -19,6 +19,7 @@ namespace libraryBackend.Models
         public string Genre { get; set; }
         public string Description { get; set; }
         public string ImagePath { get; set; }
+        public string EbookPath { get; set; } = @"/ebooks/default.mobi";
         [Required]
         [Column(TypeName = "Money")]
         public decimal Price { get; set; }
